@@ -341,7 +341,7 @@ module tqvp_rebeccargb_hardware_utf8 (
         end
     end endfunction
 
-    function [7:0] utf16d (input [1:0] ruopd); begin
+    function [7:0] utf16d (input [2:0] ruopd); begin
         // read UTF-16 byte from character register
         if (ruopd >= ruip) begin
             utf16d = 0;
@@ -406,16 +406,19 @@ module tqvp_rebeccargb_hardware_utf8 (
     end endtask
 
     task write_dat; begin
-        case (mode)
-            2'b00: if (read) read_utf8; else write_utf8;
-            2'b01: if (read) read_utf16; else write_utf16;
-            2'b10: if (read) read_utf32; else write_utf32;
-            2'b11: case (address[1:0])
-                2'b01: if (read) read_utf8; else write_utf8;
-                2'b10: if (read) read_utf16; else write_utf16;
-                2'b11: if (read) read_utf32; else write_utf32;
-            endcase
-        endcase
+        if (mode == 2'b00) begin
+            if (read) read_utf8; else write_utf8;
+        end else if (mode == 2'b01) begin
+            if (read) read_utf16; else write_utf16;
+        end else if (mode == 2'b10) begin
+            if (read) read_utf32; else write_utf32;
+        end else if (address[1:0] == 2'b01) begin
+            if (read) read_utf8; else write_utf8;
+        end else if (address[1:0] == 2'b10) begin
+            if (read) read_utf16; else write_utf16;
+        end else if (address[1:0] == 2'b11) begin
+            if (read) read_utf32; else write_utf32;
+        end
     end endtask
 
     always @(posedge clk) begin
@@ -423,18 +426,14 @@ module tqvp_rebeccargb_hardware_utf8 (
             reset_init;
         end else if (data_write) begin
             if (address[3]) begin
-                case (mode)
-                    2'b10: write_utf32_direct;
-                    2'b11: if (address[2]) write_utf32_direct;
-                endcase
+                if (mode == 2'b10) begin
+                    write_utf32_direct;
+                end else if (mode == 2'b11) begin
+                    if (address[2]) write_utf32_direct;
+                end
             end else begin
-                case (address[2:0])
-                    3'h0: write_ctl;
-                    3'h1: write_dat;
-                    3'h2: write_dat;
-                    3'h3: write_dat;
-                    3'h4: write_ctl;
-                endcase
+                if (address[1:0] == 2'h0) write_ctl;
+                else if (~address[2]) write_dat;
             end
         end
     end
@@ -445,10 +444,10 @@ module tqvp_rebeccargb_hardware_utf8 (
     assign data_out = (
         address[3] ? (
             (mode == 2'b00) ? utf8d(address[2:0]) :
-            (mode == 2'b01) ? utf16d(address[1:0]) :
+            (mode == 2'b01) ? utf16d(address[2:0]) :
             (mode == 2'b10) ? utf32d(address[1:0]) :
             address[2] ? utf32d(address[1:0]) :
-            utf16d(address[1:0])
+            utf16d(address[2:0])
         ) : (
             (address[2:0] == 3'h7) ? {read_eof, read_props} :
             (address[2:0] == 3'h6) ? {read_eof, read_errs} :
@@ -458,5 +457,8 @@ module tqvp_rebeccargb_hardware_utf8 (
             dout
         )
     );
+
+    // List all unused inputs to prevent warnings
+    wire _unused = &{ui_in, 1'b0};
 
 endmodule
