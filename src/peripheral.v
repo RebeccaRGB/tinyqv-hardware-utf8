@@ -56,9 +56,7 @@ module tqvp_rebeccargb_hardware_utf8 (
         0
     );
 
-    wire bin_eof = (rbip >= 6);
     wire bout_eof = (rbop >= rbip);
-    wire uin_eof = (ruip >= 4);
     wire uout_eof = (ruop >= ruip);
 
     wire [3:0] status = (
@@ -290,150 +288,33 @@ module tqvp_rebeccargb_hardware_utf8 (
         end
     end endtask
 
-    // ******** EXTEND UTF8.V ******** //
-
-    wire [1:0] rcipd = address[1:0];
-
-    task write_utf32_direct; begin
-        // write 8 bits to character register
-        retry <= 0;
-        empty <= 0;
-        rcip <= 4;
-        case (rcipd)
-            0: if (cbe) rc[31:24] <= din; else rc[7:0] <= din;
-            1: if (cbe) rc[23:16] <= din; else rc[15:8] <= din;
-            2: if (cbe) rc[15:8] <= din; else rc[23:16] <= din;
-            3: if (cbe) rc[7:0] <= din; else rc[31:24] <= din;
-        endcase
-    end endtask
-
-    function [7:0] utf32d (input [1:0] rcopd); begin
-        // read 8 bits from character register
-        case (rcopd)
-            0: utf32d = cbe ? rc[31:24] : rc[7:0];
-            1: utf32d = cbe ? rc[23:16] : rc[15:8];
-            2: utf32d = cbe ? rc[15:8] : rc[23:16];
-            3: utf32d = cbe ? rc[7:0] : rc[31:24];
-        endcase
-    end endfunction
-
-    function [7:0] utf8d (input [2:0] rbopd); begin
-        // read UTF-8 byte from character register
-        if (rbopd >= rbip) begin
-            utf8d = 0;
-        end else if (rbopd == 0) begin
-            case (rbip)
-                1: utf8d = rc[7:0];
-                2: utf8d = {2'b11, rc[11:6]};
-                3: utf8d = {3'b111, rc[16:12]};
-                4: utf8d = {4'b1111, rc[21:18]};
-                5: utf8d = {5'b11111, rc[26:24]};
-                6: utf8d = {7'b1111110, (rc[31] ? 1'b0 : rc[30])};
-            endcase
-        end else begin
-            case (rbip - rbopd)
-                1: utf8d = {2'b10, rc[5:0]};
-                2: utf8d = {2'b10, rc[11:6]};
-                3: utf8d = {2'b10, rc[17:12]};
-                4: utf8d = {2'b10, rc[23:18]};
-                5: utf8d = {2'b10, (rc[31] ? 2'b0 : rc[29:28]), rc[27:24]};
-            endcase
-        end
-    end endfunction
-
-    function [7:0] utf16d (input [2:0] ruopd); begin
-        // read UTF-16 byte from character register
-        if (ruopd >= ruip) begin
-            utf16d = 0;
-        end else begin
-            case (ruip)
-                // 1-byte incomplete UTF-16 input
-                1: utf16d = rc[7:0];
-                // BMP character
-                2: case (ruopd)
-                    0: utf16d = cbe ? rc[15:8] : rc[7:0];
-                    1: utf16d = cbe ? rc[7:0] : rc[15:8];
-                endcase
-                // 3-byte incomplete UTF-16 input
-                3: case (ruopd)
-                    0: utf16d = cbe ? rc[23:16] : rc[15:8];
-                    1: utf16d = cbe ? rc[15:8] : rc[23:16];
-                    2: utf16d = rc[7:0];
-                endcase
-                // non-BMP character - encode as surrogate pair
-                4: case (ruopd)
-                    0: utf16d = cbe ? hs[15:8] : hs[7:0];
-                    1: utf16d = cbe ? hs[7:0] : hs[15:8];
-                    2: utf16d = cbe ? ls[15:8] : ls[7:0];
-                    3: utf16d = cbe ? ls[7:0] : ls[15:8];
-                endcase
-            endcase
-        end
-    end endfunction
-
     // ******** END UTF8.V ******** //
-
-    reg [1:0] mode;
-    reg read;
-    reg errs;
-
-    wire [7:0] read_ctl = {1'b1, mode, read, cbe, chk_range, errs, 1'b1};
-    wire [7:0] read_len = {1'b0, ruip, 1'b0, rbip};
-    wire [1:0] read_out_eof = {bout_eof, uout_eof};
-    wire [1:0] read_in_eof = {bin_eof, uin_eof};
-    wire [1:0] read_eof = (read ? read_out_eof : read_in_eof);
-    wire [5:0] read_errs = {error, nonuni, overlong, invalid, retry, ready};
-    wire [5:0] read_props = {nonchar, private, highchar, surrogate, control, normal};
-    wire [5:0] read_ep = (errs ? read_errs : read_props);
-
-    task reset_init; begin
-        mode <= 2'b11;
-        read <= 1'b1;
-        cbe <= 1'b1;
-        chk_range <= 1'b1;
-        errs <= 1'b1;
-        reset_all;
-    end endtask
-
-    task write_ctl; begin
-        mode <= din[6:5];
-        read <= din[4];
-        cbe <= din[3];
-        chk_range <= din[2];
-        errs <= din[1];
-        if (!din[7]) reset_all;
-        else if (!din[0]) reset_read;
-    end endtask
-
-    task write_dat; begin
-        if (mode == 2'b00) begin
-            if (read) read_utf8; else write_utf8;
-        end else if (mode == 2'b01) begin
-            if (read) read_utf16; else write_utf16;
-        end else if (mode == 2'b10) begin
-            if (read) read_utf32; else write_utf32;
-        end else if (address[1:0] == 2'b01) begin
-            if (read) read_utf8; else write_utf8;
-        end else if (address[1:0] == 2'b10) begin
-            if (read) read_utf16; else write_utf16;
-        end else if (address[1:0] == 2'b11) begin
-            if (read) read_utf32; else write_utf32;
-        end
-    end endtask
 
     always @(posedge clk) begin
         if (!rst_n) begin
-            reset_init;
+            cbe <= 1; chk_range <= 1; reset_all;
         end else if (data_write) begin
             if (address[3]) begin
-                if (mode == 2'b10) begin
-                    write_utf32_direct;
-                end else if (mode == 2'b11) begin
-                    if (address[2]) write_utf32_direct;
-                end
+                // direct write to character register
+                retry <= 0; empty <= 0; rcip <= 4;
+                case (address[1:0])
+                    0: if (cbe) rc[31:24] <= din; else rc[7:0] <= din;
+                    1: if (cbe) rc[23:16] <= din; else rc[15:8] <= din;
+                    2: if (cbe) rc[15:8] <= din; else rc[23:16] <= din;
+                    3: if (cbe) rc[7:0] <= din; else rc[31:24] <= din;
+                endcase
             end else begin
-                if (address[1:0] == 2'h0) write_ctl;
-                else if (~address[2]) write_dat;
+                // write to virtual register
+                case (address[2:0])
+                    0: begin cbe <= din[3]; chk_range <= din[2]; reset_all; end
+                    1: write_utf32;
+                    2: write_utf16;
+                    3: write_utf8;
+                    4: begin cbe <= din[3]; chk_range <= din[2]; reset_read; end
+                    5: read_utf32;
+                    6: read_utf16;
+                    7: read_utf8;
+                endcase
             end
         end
     end
@@ -441,22 +322,23 @@ module tqvp_rebeccargb_hardware_utf8 (
     // All output pins must be assigned. If not used, assign to 0.
     assign uo_out = 0;
 
-    assign data_out = (
-        address[3] ? (
-            (mode == 2'b00) ? utf8d(address[2:0]) :
-            (mode == 2'b01) ? utf16d(address[2:0]) :
-            (mode == 2'b10) ? utf32d(address[1:0]) :
-            address[2] ? utf32d(address[1:0]) :
-            utf16d(address[2:0])
-        ) : (
-            (address[2:0] == 3'h7) ? {read_eof, read_props} :
-            (address[2:0] == 3'h6) ? {read_eof, read_errs} :
-            (address[2:0] == 3'h5) ? read_len :
-            (address[2:0] == 3'h4) ? read_ctl :
-            (address[2:0] == 3'h0) ? {read_eof, read_ep} :
-            dout
-        )
+    wire [7:0] rcread = (
+        // direct read from character register
+        address[1] ? (address[0] ? (cbe ? rc[ 7:0 ] : rc[31:24])
+                                 : (cbe ? rc[15:8 ] : rc[23:16]))
+                   : (address[0] ? (cbe ? rc[23:16] : rc[15:8 ])
+                                 : (cbe ? rc[31:24] : rc[ 7:0 ]))
     );
+
+    wire [7:0] rvread = (
+        // read from virtual register
+        address[1] ? (address[0] ? ({(bout_eof &~ empty), 4'h0, rbip})
+                                 : ({(uout_eof &~ empty), 4'h0, ruip}))
+                   : (address[0] ? ({2'b00, nonchar, private, highchar, surrogate, control, normal})
+                                 : ({2'b00, error, nonuni, overlong, invalid, retry, ready}))
+    );
+
+    assign data_out = (address[3] ? rcread : address[2] ? dout : rvread);
 
     // List all unused inputs to prevent warnings
     wire _unused = &{ui_in, 1'b0};

@@ -29,82 +29,106 @@ async def test_project(dut):
 
     # Reset, always start the test by resetting TinyQV
     await tqv.reset()
-    assert await tqv.read_reg(4) == 0xFF
+    assert await tqv.read_reg(0) == 0
+    assert await tqv.read_reg(1) == 0
+    assert await tqv.read_reg(2) == 0
+    assert await tqv.read_reg(3) == 0
+    assert await tqv.read_reg(4) == 0
+    assert await tqv.read_reg(5) == 0
+    assert await tqv.read_reg(6) == 0
+    assert await tqv.read_reg(7) == 0
+    assert await tqv.read_reg(8) == 0
+    assert await tqv.read_reg(9) == 0
+    assert await tqv.read_reg(10) == 0
+    assert await tqv.read_reg(11) == 0
+    assert await tqv.read_reg(12) == 0
+    assert await tqv.read_reg(13) == 0
+    assert await tqv.read_reg(14) == 0
+    assert await tqv.read_reg(15) == 0
 
     dut._log.info("Test project behavior")
 
     # Test register write and read back
-    await tqv.write_reg(4, 0x00)
-    assert await tqv.read_reg(4) == 0x81
+    await tqv.write_reg(3, 0x41)
+    assert await tqv.read_reg(0) == 1
+    assert await tqv.read_reg(1) == 1
+    assert await tqv.read_reg(2) == 2
+    assert await tqv.read_reg(3) == 1
+    assert await tqv.read_reg(4) == 0
+    assert await tqv.read_reg(5) == 0
+    assert await tqv.read_reg(6) == 0
+    assert await tqv.read_reg(7) == 0
+    assert await tqv.read_reg(8) == 0
+    assert await tqv.read_reg(9) == 0
+    assert await tqv.read_reg(10) == 0
+    assert await tqv.read_reg(11) == 0x41
+    assert await tqv.read_reg(12) == 0
+    assert await tqv.read_reg(13) == 0
+    assert await tqv.read_reg(14) == 0
+    assert await tqv.read_reg(15) == 0x41
 
     # Keep testing the module by changing the input values, waiting for
     # one or more clock cycles, and asserting the expected output values.
-    await tqv.write_reg(4, 0xFF)
-    assert await tqv.read_reg(4) == 0xFF
-    await tqv.write_reg(0, 0x00)
-    assert await tqv.read_reg(4) == 0x81
     await tqv.write_reg(0, 0xFF)
-    assert await tqv.read_reg(4) == 0xFF
-    await tqv.write_reg(4, 0x00)
-    assert await tqv.read_reg(4) == 0x81
-    await tqv.reset()
-    assert await tqv.read_reg(4) == 0xFF
+    assert await tqv.read_reg(0) == 0
+    assert await tqv.read_reg(1) == 0
+    assert await tqv.read_reg(2) == 0
+    assert await tqv.read_reg(3) == 0
+    assert await tqv.read_reg(4) == 0
+    assert await tqv.read_reg(5) == 0
+    assert await tqv.read_reg(6) == 0
+    assert await tqv.read_reg(7) == 0
+    assert await tqv.read_reg(8) == 0
+    assert await tqv.read_reg(9) == 0
+    assert await tqv.read_reg(10) == 0
+    assert await tqv.read_reg(11) == 0
+    assert await tqv.read_reg(12) == 0
+    assert await tqv.read_reg(13) == 0
+    assert await tqv.read_reg(14) == 0
+    assert await tqv.read_reg(15) == 0
 
-    OUTR = 0x01 # output reset
+    global ctl
+    ctl = 0xFF
+
     ERRS = 0x02 # errors/properties output
     CHKR = 0x04 # range check
     IOBE = 0x08 # big endian I/O
-    READ = 0x10 # read/write mode
-    CCLK = 0x20 # UTF-32 mode
-    UCLK = 0x40 # UTF-16 mode
-    BCLK = 0x60 # UTF-8 mode
-    INPR = 0x80 # input reset
-
-    UEOF = 0x40 # UTF-16 EOF
-    BEOF = 0x80 # UTF-8 EOF
 
     async def clear_input(b):
-        ctl = await tqv.read_reg(4)
+        global ctl
         ctl &=~ b
-        await tqv.write_reg(0, ctl)
-        assert await tqv.read_reg(4) == (ctl | 0x81)
+        await tqv.write_reg(4, ctl)
 
     async def set_input(b):
-        ctl = await tqv.read_reg(4)
+        global ctl
         ctl |= b
-        await tqv.write_reg(0, ctl)
-        assert await tqv.read_reg(4) == (ctl | 0x81)
-
-    async def get_output(b):
-        ep = await tqv.read_reg(0)
-        return (1 if (ep & b) else 0)
+        await tqv.write_reg(4, ctl)
 
     async def write_byte(b, eof):
-        await clear_input(READ)
-        await tqv.write_reg(1, b)
-        assert await get_output(BEOF) == eof
+        await tqv.write_reg(3, b)
+        u8len = await tqv.read_reg(3)
+        assert (1 if ((u8len & 15) >= 6) else 0) == eof
 
     async def read_byte(b, eof):
-        await set_input(READ)
-        await tqv.write_reg(1, 0)
-        assert await tqv.read_reg(1) == b
-        assert await get_output(BEOF) == eof
+        await tqv.write_reg(7, 0)
+        assert await tqv.read_reg(7) == b
+        u8len = await tqv.read_reg(3)
+        assert (1 if (u8len & 128) else 0) == eof
 
     async def write_char(b):
-        await clear_input(READ)
-        await tqv.write_reg(3, b)
+        await tqv.write_reg(1, b)
 
     async def read_char(b):
-        await set_input(READ)
-        await tqv.write_reg(3, 0)
-        assert await tqv.read_reg(3) == b
+        await tqv.write_reg(5, 0)
+        assert await tqv.read_reg(5) == b
 
     async def read_reset():
-        await clear_input(OUTR)
+        global ctl
+        await tqv.write_reg(4, ctl)
 
     async def write_reset():
-        await clear_input(INPR)
-
+        global ctl
+        await tqv.write_reg(0, ctl)
 
 
     # register I/O
